@@ -1,0 +1,493 @@
+{
+  "updatedAt": "2026-06-18T11:33:14.745Z",
+  "createdAt": "2026-06-17T11:46:22.569Z",
+  "id": "olY5LFhYz2NIBCAC",
+  "name": "TelePost Bot",
+  "description": "TelePost Bot\nAutomated weekly Telegram channel poster with scheduled publishing, retry logic, and optional inline buttons.\n\nHow it works\nSchedule: Mon–Wed, every 15 minutes between 19:00–21:45 (Europe/Moscow)\n\nFlow:\n\nReads all pending posts from the built-in n8n Data Table\nFilters by current day of week and time (±15 min window)\nApplies 6-day cooldown — a post won't be re-sent within 6 days after publishing\nOptionally attaches an inline URL button if button_text and button_url are provided\nSends the post to a Telegram channel via Bot API\nOn success — records sent_at timestamp in the Data Table\nOn failure — increments retry_count; after 3 failed attempts marks the post as error\n\nData Table: telegram_posts\n\nColumn\tType\tDescription\nchannel_id\tString\tTelegram channel ID or @username\npost_id\tNumber\tUnique post identifier\nday_of_week\tNumber\t0=Sun, 1=Mon, … 6=Sat\ntime\tString\tTarget time, e.g. \"20:45\"\npost_text\tString\tMessage text (HTML supported)\nstatus\tString\tpending or error\nsent_at\tString\tISO timestamp of last send\nretry_count\tNumber\tFailed attempt counter\nbutton_text\tString\tInline button label (optional)\nbutton_url\tString\tInline button URL (optional)\n\nKey behaviors\n\nWeekly recurrence: after sending, sent_at is set and the 6-day cooldown prevents re-sending until the next week\nRetry: up to 3 attempts per post; after 3 failures status changes to error\nTimezone-aware: all time comparisons use Europe/Moscow timezone (server runs in UTC)\nOptional buttons: if both button_text and button_url are filled, an inline URL button is attached to the message.",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 19-21 * * 1-3"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "value": "SfKWVfH1WwTfrxsS",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "pending"
+            }
+          ]
+        }
+      },
+      "id": "get-pending-posts",
+      "name": "Get Pending Posts",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        208,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const TIMEZONE = 'Europe/Moscow';\nconst now = new Date();\n\nconst parts = new Intl.DateTimeFormat('en-US', {\n  timeZone: TIMEZONE, hour: 'numeric', minute: 'numeric', hour12: false\n}).formatToParts(now);\nconst currentHour = parseInt(parts.find(p => p.type === 'hour').value);\nconst currentMinute = parseInt(parts.find(p => p.type === 'minute').value);\nconst currentTotal = currentHour * 60 + currentMinute;\n\nconst dayParts = new Intl.DateTimeFormat('en-US', {\n  timeZone: TIMEZONE, weekday: 'short'\n}).formatToParts(now);\nconst dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };\nconst currentDay = dayMap[dayParts.find(p => p.type === 'weekday').value];\n\nconst filtered = $input.all().filter(item => {\n  const row = item.json;\n  if (String(row.status) !== 'pending') return false;\n  if (Number(row.day_of_week) !== currentDay) return false;\n\n  if (row.sent_at && row.sent_at !== 'null') {\n    const sentAt = new Date(row.sent_at);\n    const daysSinceSent = (now - sentAt) / (1000 * 60 * 60 * 24);\n    if (daysSinceSent < 6) return false;\n  }\n\n  const [h, m] = String(row.time).split(':').map(Number);\n  if (isNaN(h) || isNaN(m)) return false;\n  const targetTotal = h * 60 + m;\n  const diff = currentTotal - targetTotal;\n  return diff >= -15 && diff < 15;\n});\n\nreturn filtered.map(item => ({ json: item.json }));"
+      },
+      "id": "filter-posts",
+      "name": "Filter Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        304
+      ],
+      "alwaysOutputData": false,
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.channel_id }}",
+        "text": "={{ $json.post_text }}",
+        "replyMarkup": "={{ $json.has_button ? 'inlineKeyboard' : '' }}",
+        "forceReply": {},
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.button_text }}",
+                    "additionalFields": {
+                      "url": "={{ $json.button_url }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "replyKeyboardOptions": {},
+        "replyKeyboardRemove": {},
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "telegram-send",
+      "name": "Telegram Send",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [
+        800,
+        304
+      ],
+      "webhookId": "b68cb23d-0c55-4f74-9210-71f0f3b5fc59",
+      "credentials": {
+        "telegramApi": {
+          "id": "p9gCqL29a8sOgpTi",
+          "name": "TelePost Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nreturn [{\n  json: {\n    ...item.json,\n    _success: item.json.ok === true\n  }\n}];"
+      },
+      "name": "Send Success?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        304
+      ],
+      "id": "if-success"
+    },
+    {
+      "parameters": {
+        "jsCode": "const post = $('Filter Posts').first()?.json;\nif (!post?.post_id) throw new Error('No post data from Filter Posts');\n\nreturn [{\n  json: {\n    id: post.post_id,\n    status: 'pending',\n    sent_at: new Date().toISOString(),\n    retry_count: 0\n  }\n}];"
+      },
+      "id": "mark-sent",
+      "name": "Mark Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const post = $('Filter Posts').first()?.json;\nif (!post?.post_id) throw new Error('No post data from Filter Posts');\n\nconst item = $input.first();\nconst retryCount = (post.retry_count || 0) + 1;\nconst MAX_RETRIES = 3;\n\nreturn [{\n  json: {\n    id: post.post_id,\n    status: retryCount < MAX_RETRIES ? 'pending' : 'error',\n    retry_count: retryCount,\n    last_error: item.json?.error?.message || 'Telegram send failed'\n  }\n}];"
+      },
+      "id": "handle-error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "value": "SfKWVfH1WwTfrxsS",
+          "mode": "list"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "post_id",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sent_at": "={{ $json.sent_at }}",
+            "status": "={{ $json.status }}",
+            "retry_count": "={{ $json.retry_count }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "channel_id",
+              "displayName": "channel_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "post_id",
+              "displayName": "post_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "day_of_week",
+              "displayName": "day_of_week",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "time",
+              "displayName": "time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "post_text",
+              "displayName": "post_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "button_text",
+              "displayName": "button_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "button_url",
+              "displayName": "button_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "sent_at",
+              "displayName": "sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "retry_count",
+              "displayName": "retry_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "update-status",
+      "name": "Update Status",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        1632,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "check-success",
+              "leftValue": "={{ $json._success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Check Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1216,
+        304
+      ],
+      "id": "check-success-001"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst buttonText = item.json?.button_text || '';\nconst buttonUrl = item.json?.button_url || '';\n\nreturn [{\n  json: {\n    ...item.json,\n    has_button: !!(buttonText && buttonUrl),\n    button_text: buttonText,\n    button_url: buttonUrl\n  }\n}];"
+      },
+      "name": "Prepare Buttons",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        304
+      ],
+      "id": "prepare-buttons-001"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Pending Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Pending Posts": {
+      "main": [
+        [
+          {
+            "node": "Filter Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Posts": {
+      "main": [
+        [
+          {
+            "node": "Prepare Buttons",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Send": {
+      "main": [
+        [
+          {
+            "node": "Send Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Success?": {
+      "main": [
+        [
+          {
+            "node": "Check Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Sent": {
+      "main": [
+        [
+          {
+            "node": "Update Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Error": {
+      "main": [
+        [
+          {
+            "node": "Update Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Status": {
+      "main": [
+        []
+      ]
+    },
+    "Check Success?": {
+      "main": [
+        [
+          {
+            "node": "Mark Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Buttons": {
+      "main": [
+        [
+          {
+            "node": "Telegram Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "timezone": "Europe/Moscow",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataSuccessExecution": "none"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "80a58bdd-cb26-4fe3-be60-6329a53e185a",
+  "activeVersionId": null,
+  "versionCounter": 81,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "shared": [
+    {
+      "updatedAt": "2026-06-17T11:46:22.569Z",
+      "createdAt": "2026-06-17T11:46:22.569Z",
+      "role": "workflow:owner",
+      "workflowId": "olY5LFhYz2NIBCAC",
+      "projectId": "8u15MLhUylK6SkyA",
+      "project": {
+        "updatedAt": "2026-03-26T13:05:31.196Z",
+        "createdAt": "2026-03-26T12:56:39.070Z",
+        "id": "8u15MLhUylK6SkyA",
+        "name": "Maksim Fomichev <max.fomichev@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "65137363-0a53-42b7-b07a-721d51bcbdfa"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": null
+}
