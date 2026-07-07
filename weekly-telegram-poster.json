@@ -1,11 +1,6 @@
 {
-  "updatedAt": "2026-06-18T11:33:14.745Z",
-  "createdAt": "2026-06-17T11:46:22.569Z",
   "id": "olY5LFhYz2NIBCAC",
   "name": "TelePost Bot",
-  "description": "TelePost Bot\nAutomated weekly Telegram channel poster with scheduled publishing, retry logic, and optional inline buttons.\n\nHow it works\nSchedule: Mon–Wed, every 15 minutes between 19:00–21:45 (Europe/Moscow)\n\nFlow:\n\nReads all pending posts from the built-in n8n Data Table\nFilters by current day of week and time (±15 min window)\nApplies 6-day cooldown — a post won't be re-sent within 6 days after publishing\nOptionally attaches an inline URL button if button_text and button_url are provided\nSends the post to a Telegram channel via Bot API\nOn success — records sent_at timestamp in the Data Table\nOn failure — increments retry_count; after 3 failed attempts marks the post as error\n\nData Table: telegram_posts\n\nColumn\tType\tDescription\nchannel_id\tString\tTelegram channel ID or @username\npost_id\tNumber\tUnique post identifier\nday_of_week\tNumber\t0=Sun, 1=Mon, … 6=Sat\ntime\tString\tTarget time, e.g. \"20:45\"\npost_text\tString\tMessage text (HTML supported)\nstatus\tString\tpending or error\nsent_at\tString\tISO timestamp of last send\nretry_count\tNumber\tFailed attempt counter\nbutton_text\tString\tInline button label (optional)\nbutton_url\tString\tInline button URL (optional)\n\nKey behaviors\n\nWeekly recurrence: after sending, sent_at is set and the 6-day cooldown prevents re-sending until the next week\nRetry: up to 3 attempts per post; after 3 failures status changes to error\nTimezone-aware: all time comparisons use Europe/Moscow timezone (server runs in UTC)\nOptional buttons: if both button_text and button_url are filled, an inline URL button is attached to the message.",
-  "active": false,
-  "isArchived": false,
   "nodes": [
     {
       "parameters": {
@@ -452,42 +447,8 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "binaryMode": "separate",
-    "availableInMCP": true,
-    "timeSavedMode": "fixed",
     "timezone": "Europe/Moscow",
-    "callerPolicy": "workflowsFromSameOwner",
-    "saveDataSuccessExecution": "none"
-  },
-  "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "80a58bdd-cb26-4fe3-be60-6329a53e185a",
-  "activeVersionId": null,
-  "versionCounter": 81,
-  "triggerCount": 0,
-  "sourceWorkflowId": null,
-  "shared": [
-    {
-      "updatedAt": "2026-06-17T11:46:22.569Z",
-      "createdAt": "2026-06-17T11:46:22.569Z",
-      "role": "workflow:owner",
-      "workflowId": "olY5LFhYz2NIBCAC",
-      "projectId": "8u15MLhUylK6SkyA",
-      "project": {
-        "updatedAt": "2026-03-26T13:05:31.196Z",
-        "createdAt": "2026-03-26T12:56:39.070Z",
-        "id": "8u15MLhUylK6SkyA",
-        "name": "Maksim Fomichev <max.fomichev@gmail.com>",
-        "type": "personal",
-        "icon": null,
-        "description": null,
-        "customTelemetryTags": [],
-        "creatorId": "65137363-0a53-42b7-b07a-721d51bcbdfa"
-      }
-    }
-  ],
-  "tags": [],
-  "activeVersion": null
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all"
+  }
 }
